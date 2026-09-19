@@ -272,23 +272,25 @@
             <span class="m3-icon-badge"><span class="material-symbols-outlined">list_alt</span></span>
             <div class="m3-heading">Daftar SPTJB Tersimpan</div>
           </div>
-          <? if (sptjbList.length === 0) { ?>
-            <p class="m3-caption">Belum ada SPTJB. Simpan SPTJB pertama di atas.</p>
-          <? } else { ?>
-            <div class="m3-list">
-              <? sptjbList.slice(0, 10).forEach(function(s) { ?>
-                <div class="m3-list-item">
-                  <div class="m3-list-item-info">
-                    <span class="m3-list-item-title"><?= s.noSptjb ?></span>
-                    <span class="m3-list-item-sub"><?= s.kegiatan ?></span>
+          <div id="daftarSptjbTersimpanBox">
+            <? if (sptjbList.length === 0) { ?>
+              <p class="m3-caption">Belum ada SPTJB. Simpan SPTJB pertama di atas.</p>
+            <? } else { ?>
+              <div class="m3-list" id="daftarSptjbTersimpanList">
+                <? sptjbList.slice(0, 10).forEach(function(s) { ?>
+                  <div class="m3-list-item">
+                    <div class="m3-list-item-info">
+                      <span class="m3-list-item-title"><?= s.noSptjb ?></span>
+                      <span class="m3-list-item-sub"><?= s.kegiatan ?></span>
+                    </div>
+                    <button type="button" class="m3-btn m3-btn-outline sm" onclick="bukaSuratTugasUntukSptjb('<?= s.idSptjb ?>')">
+                      <span class="material-symbols-outlined">badge</span> Kelola Surat Tugas
+                    </button>
                   </div>
-                  <button type="button" class="m3-btn m3-btn-outline sm" onclick="bukaSuratTugasUntukSptjb('<?= s.idSptjb ?>')">
-                    <span class="material-symbols-outlined">badge</span> Kelola Surat Tugas
-                  </button>
-                </div>
-              <? }); ?>
-            </div>
-          <? } ?>
+                <? }); ?>
+              </div>
+            <? } ?>
+          </div>
         </div>
       </div>
 
@@ -528,6 +530,30 @@
       document.getElementById('f_klasifikasiAnggaran').value = '';
     }
 
+    function tambahKartuSptjbTersimpan(idSptjb, noSptjb, kegiatan) {
+      const box = document.getElementById('daftarSptjbTersimpanBox');
+      let list = document.getElementById('daftarSptjbTersimpanList');
+      if (!list) {
+        // sebelumnya kosong ("Belum ada SPTJB...") -- ganti jadi list beneran
+        box.innerHTML = '<div class="m3-list" id="daftarSptjbTersimpanList"></div>';
+        list = document.getElementById('daftarSptjbTersimpanList');
+      }
+      const item = document.createElement('div');
+      item.className = 'm3-list-item';
+      item.innerHTML =
+        '<div class="m3-list-item-info">' +
+          '<span class="m3-list-item-title"></span>' +
+          '<span class="m3-list-item-sub"></span>' +
+        '</div>' +
+        '<button type="button" class="m3-btn m3-btn-outline sm">' +
+          '<span class="material-symbols-outlined">badge</span> Kelola Surat Tugas' +
+        '</button>';
+      item.querySelector('.m3-list-item-title').textContent = noSptjb;
+      item.querySelector('.m3-list-item-sub').textContent = kegiatan;
+      item.querySelector('button').addEventListener('click', function() { bukaSuratTugasUntukSptjb(idSptjb); });
+      list.insertBefore(item, list.firstChild); // SPTJB terbaru muncul paling atas
+    }
+
     function submitSptjbForm() {
       const kegiatan = document.getElementById('f_kegiatan').value.trim();
       const tglMulai = document.getElementById('f_tglMulai').value;
@@ -559,6 +585,1120 @@
             opt.dataset.noakun = noAkun;
             opt.textContent = res.noSptjb + ' — ' + res.kegiatan;
             sel.appendChild(opt);
+
+            tambahKartuSptjbTersimpan(res.idSptjb, res.noSptjb, res.kegiatan);
+
+            ['f_kegiatan','f_tglMulai','f_tglSelesai','f_jumlahPengajuan']
+              .forEach(function(id) { document.getElementById(id).value = ''; });
+            document.getElementById('sel_kegiatan').value = '';
+            resetDownstream('kegiatan');
+            muatPreviewNoSptjb();
+          } else {
+            box.textContent = 'Gagal: ' + res.error;
+          }
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById('loadingMsgSptjb').style.display = 'none';
+          alert('Error: ' + err.message);
+        })
+        .submitSptjb(formData);
+    }
+
+    function bukaSuratTugasUntukSptjb(idSptjb) {
+      switchTab('suratTugas');
+      document.getElementById('f_sptjbPilihan').value = idSptjb;
+      onSptjbPilihanChange();
+    }
+
+    // ---- SURAT TUGAS (tab 2) -----------------------------------------
+    function onSptjbPilihanChange() {
+      const sel = document.getElementById('f_sptjbPilihan');
+      const opt = sel.options[sel.selectedIndex];
+      const box = document.getElementById('infoSptjbTerpilih');
+      if (!opt || !opt.value) { box.style.display = 'none'; return; }
+      box.style.display = '';
+      box.textContent = 'No Akun mengikuti SPTJB ini: ' + (opt.dataset.noakun || '-') + '. Surat Tugas baru otomatis memakai akun yang sama.';
+    }
+
+    function tambahTripBlock() {
+      tripCount++;
+      const tripId = 'trip_' + tripCount;
+      const standarScopeId = 'standar_' + tripId;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'trip-block m3-card';
+      wrapper.id = tripId;
+      wrapper.innerHTML =
+        '<div class="trip-block-head">' +
+          '<div class="trip-block-title">' +
+            '<span class="m3-icon-badge secondary"><span class="material-symbols-outlined">assignment_turned_in</span></span>' +
+            '<span class="m3-heading">Surat Tugas #' + tripCount + '</span>' +
+          '</div>' +
+          '<button type="button" class="remove-trip-btn" onclick="hapusTripBlock(\'' + tripId + '\')"><span class="material-symbols-outlined">delete</span> Hapus ST ini</button>' +
+        '</div>' +
+
+        '<div class="m3-grid-3">' +
+          '<div class="m3-field col-span-3"><label>Kegiatan Surat Tugas</label><input class="t-kegiatantrip"></div>' +
+          '<div class="m3-field col-span-2"><label>Tujuan (ringkasan bebas)</label><input class="t-tujuan" placeholder="mis. Kota Bandung &amp; Kota Cimahi"></div>' +
+          '<div class="m3-field"><label>Hotel / Tempat / Vendor</label><input class="t-hotelvendor"></div>' +
+          '<div class="m3-field"><label>Tanggal Berangkat</label><input type="date" class="t-tglberangkat" onchange="onTripTanggalChange(\'' + tripId + '\')"></div>' +
+          '<div class="m3-field"><label>Tanggal Kembali</label><input type="date" class="t-tglkembali" onchange="onTripTanggalChange(\'' + tripId + '\')"></div>' +
+          '<div class="m3-field"><label>No SPM <span class="m3-hint">(kosongkan dulu jika belum terbit)</span></label><input class="t-nospm"></div>' +
+          '<div class="m3-field"><label>No Surat Tugas</label><input class="t-nost" placeholder="mis. 3.4/457/PK.03/VII/2026"></div>' +
+          '<div class="m3-field"><label>No SK <span class="m3-hint">(1 ST = 1 SK)</span></label><input class="t-nosk"></div>' +
+          '<div class="m3-field"><label>Tahap</label><input class="t-tahap"></div>' +
+        '</div>' +
+
+        '<div class="m3-mode-box">' +
+          '<div class="m3-mode-box-head">' +
+            '<span class="m3-icon-badge tonal"><span class="material-symbols-outlined">tune</span></span>' +
+            '<div><div class="m3-label-strong">Mode Penugasan Daerah Personil</div>' +
+            '<div class="m3-caption">Semua personil ke daerah yang sama, atau dibagi per kelompok daerah berbeda.</div></div>' +
+          '</div>' +
+          '<div class="m3-segmented">' +
+            '<label class="m3-segment"><input type="radio" name="mode_' + tripId + '" value="standar" checked onchange="onModeChange(\'' + tripId + '\')"><span class="material-symbols-outlined">group</span><span>Satu Daerah Bersama</span></label>' +
+            '<label class="m3-segment"><input type="radio" name="mode_' + tripId + '" value="kelompok" onchange="onModeChange(\'' + tripId + '\')"><span class="material-symbols-outlined">hub</span><span>Bagi per Kelompok Daerah</span></label>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="mode-standar-block" id="' + standarScopeId + '">' +
+          '<div class="m3-grid-2">' +
+            '<div class="m3-field"><label>Provinsi Tujuan</label><select class="t-provinsi" data-role="scope-provinsi" onchange="onTripProvinsiChange(\'' + tripId + '\'); recalcScope(document.getElementById(\'' + standarScopeId + '\'))"><option value="">-- pilih provinsi --</option></select></div>' +
+            '<div class="m3-field"><label>Daerah (Kab/Kota)</label><select class="t-daerah" data-role="scope-daerah" onchange="recalcScope(document.getElementById(\'' + standarScopeId + '\'))"><option value="">-- pilih provinsi dulu --</option></select></div>' +
+          '</div>' +
+          '<div class="m3-heading" style="font-size:14px;">Daftar Pelaksana &amp; Rincian Nominatif</div>' +
+          '<div class="orangContainer"></div>' +
+          '<button type="button" class="m3-btn m3-btn-outline sm" onclick="tambahBarisOrang(document.getElementById(\'' + standarScopeId + '\').querySelector(\'.orangContainer\'), \'' + standarScopeId + '\')"><span class="material-symbols-outlined">person_add</span> Tambah Personil</button>' +
+        '</div>' +
+
+        '<div class="mode-kelompok-block" style="display:none;">' +
+          '<div class="m3-kelompok-toolbar">' +
+            '<span class="m3-caption">Personil dikelompokkan ke daerah tujuan berbeda, masing-masing dengan perhitungan SBM sendiri.</span>' +
+            '<button type="button" class="m3-btn m3-btn-primary sm" onclick="tambahKelompokBlock(\'' + tripId + '\')"><span class="material-symbols-outlined">add_location_alt</span> Tambah Kelompok Daerah</button>' +
+          '</div>' +
+          '<div class="kelompokContainer"></div>' +
+        '</div>';
+
+      document.getElementById('tripBlocksContainer').appendChild(wrapper);
+
+      google.script.run
+        .withSuccessHandler(function(list) { isiOpsiSimple(wrapper.querySelector('.t-provinsi'), list, '-- pilih provinsi --'); })
+        .withFailureHandler(function(err) { console.error('Gagal ambil daftar provinsi:', err.message); })
+        .getProvinsiList();
+
+      tambahBarisOrang(wrapper.querySelector('.orangContainer'), standarScopeId);
+      return tripId;
+    }
+
+    function hapusTripBlock(tripId) {
+      if (document.querySelectorAll('.trip-block').length <= 1) { alert('Minimal harus ada 1 Surat Tugas.'); return; }
+      document.getElementById(tripId).remove();
+    }
+
+    function onModeChange(tripId) {
+      const tripEl = document.getElementById(tripId);
+      const mode = tripEl.querySelector('input[name="mode_' + tripId + '"]:checked').value;
+      const standarBlock = tripEl.querySelector('.mode-standar-block');
+      const kelompokBlock = tripEl.querySelector('.mode-kelompok-block');
+      if (mode === 'kelompok') {
+        standarBlock.style.display = 'none';
+        kelompokBlock.style.display = '';
+        if (kelompokBlock.querySelector('.kelompokContainer').children.length === 0) tambahKelompokBlock(tripId);
+      } else {
+        kelompokBlock.style.display = 'none';
+        standarBlock.style.display = '';
+      }
+    }
+
+    function onTripProvinsiChange(tripId) {
+      const tripEl = document.getElementById(tripId);
+      const provinsi = tripEl.querySelector('.t-provinsi').value;
+      const daerahSelect = tripEl.querySelector('.t-daerah');
+      if (!provinsi) { isiOpsiSimple(daerahSelect, [], '-- pilih provinsi dulu --'); return; }
+      isiOpsiSimple(daerahSelect, [], 'Memuat...');
+      google.script.run
+        .withSuccessHandler(function(list) { isiOpsiSimple(daerahSelect, list, list.length ? '-- pilih kab/kota --' : '-- tidak ada data --'); })
+        .withFailureHandler(function(err) { isiOpsiSimple(daerahSelect, [], '-- gagal memuat --'); console.error('Gagal ambil daftar kab/kota:', err.message); })
+        .getDaerahByProvinsi(provinsi);
+    }
+
+    function onTripTanggalChange(tripId) {
+      const tripEl = document.getElementById(tripId);
+      tripEl.querySelectorAll('.orang-block').forEach(function(w) {
+        if (w.querySelector('.o-nama').value) hitungNominatifRow(w.id, w.dataset.scope);
+      });
+    }
+
+    function tambahKelompokBlock(tripId) {
+      kelompokCount++;
+      const kelompokId = 'kelompok_' + kelompokCount;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'kelompok-block m3-subcard';
+      wrapper.id = kelompokId;
+      wrapper.innerHTML =
+        '<div class="kelompok-head">' +
+          '<input class="k-label" value="Kelompok ' + kelompokCount + '" placeholder="Nama kelompok (opsional)">' +
+          '<button type="button" class="remove-btn" onclick="hapusKelompokBlock(\'' + tripId + '\',\'' + kelompokId + '\')"><span class="material-symbols-outlined">delete</span> Hapus</button>' +
+        '</div>' +
+        '<div class="m3-grid-2">' +
+          '<div class="m3-field"><label>Provinsi Tujuan</label><select class="k-provinsi" data-role="scope-provinsi" onchange="onKelompokProvinsiChange(\'' + kelompokId + '\'); recalcScope(document.getElementById(\'' + kelompokId + '\'))"><option value="">-- pilih provinsi --</option></select></div>' +
+          '<div class="m3-field"><label>Daerah (Kab/Kota)</label><select class="k-daerah" data-role="scope-daerah" onchange="recalcScope(document.getElementById(\'' + kelompokId + '\'))"><option value="">-- pilih provinsi dulu --</option></select></div>' +
+        '</div>' +
+        '<div class="orangContainer"></div>' +
+        '<button type="button" class="m3-btn m3-btn-outline sm" onclick="tambahBarisOrang(document.getElementById(\'' + kelompokId + '\').querySelector(\'.orangContainer\'), \'' + kelompokId + '\')"><span class="material-symbols-outlined">person_add</span> Tambah Personil</button>';
+
+      document.getElementById(tripId).querySelector('.kelompokContainer').appendChild(wrapper);
+
+      google.script.run
+        .withSuccessHandler(function(list) { isiOpsiSimple(wrapper.querySelector('.k-provinsi'), list, '-- pilih provinsi --'); })
+        .withFailureHandler(function(err) { console.error('Gagal ambil daftar provinsi:', err.message); })
+        .getProvinsiList();
+
+      tambahBarisOrang(wrapper.querySelector('.orangContainer'), kelompokId);
+    }
+
+    function hapusKelompokBlock(tripId, kelompokId) {
+      const container = document.getElementById(tripId).querySelector('.kelompokContainer');
+      if (container.children.length <= 1) { alert('Minimal harus ada 1 kelompok daerah.'); return; }
+      document.getElementById(kelompokId).remove();
+    }
+
+    function onKelompokProvinsiChange(kelompokId) {
+      const wrapper = document.getElementById(kelompokId);
+      const provinsi = wrapper.querySelector('.k-provinsi').value;
+      const daerahSelect = wrapper.querySelector('.k-daerah');
+      if (!provinsi) { isiOpsiSimple(daerahSelect, [], '-- pilih provinsi dulu --'); return; }
+      isiOpsiSimple(daerahSelect, [], 'Memuat...');
+      google.script.run
+        .withSuccessHandler(function(list) { isiOpsiSimple(daerahSelect, list, list.length ? '-- pilih kab/kota --' : '-- tidak ada data --'); })
+        .withFailureHandler(function(err) { isiOpsiSimple(daerahSelect, [], '-- gagal memuat --'); console.error('Gagal ambil daftar kab/kota:', err.message); })
+        .getDaerahByProvinsi(provinsi);
+    }
+
+    function tambahBarisOrang(containerEl, scopeId) {
+      orangCount++;
+      const id = 'orang_' + orangCount;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'orang-block';
+      wrapper.id = id;
+      wrapper.dataset.scope = scopeId;
+
+      const options = pegawaiList.map(function(p) {
+        return '<option value="' + p.nama.replace(/"/g,'') + '">' + p.nama + '</option>';
+      }).join('');
+
+      wrapper.innerHTML =
+        '<div class="orang-row">' +
+          '<div class="m3-field"><label>Nama</label><input list="pegawaiOpts_' + id + '" class="o-nama" placeholder="Ketik atau pilih nama" oninput="onNamaOrangChange(this)"><datalist id="pegawaiOpts_' + id + '">' + options + '</datalist></div>' +
+          '<div class="m3-field"><label>NIP</label><input class="o-nip" placeholder="otomatis / isi manual"></div>' +
+          '<div class="m3-field"><label>Tipe</label><select class="o-tipe"><option>Penyelenggara</option><option>Peserta</option><option>Narasumber</option></select></div>' +
+          '<div class="m3-field"><label>Catatan/Sub-tim</label><input class="o-kelompok" placeholder="opsional"></div>' +
+          '<button type="button" class="remove-btn" title="Hapus personil" onclick="document.getElementById(\'' + id + '\').remove()"><span class="material-symbols-outlined">delete</span></button>' +
+        '</div>' +
+        '<div class="nominatif-row">' +
+          '<div><label>Transport Tiket</label><input type="number" class="n-transportpp" value="0" oninput="hitungTotalRow(\'' + id + '\')"></div>' +
+          '<div><label>Transport Kedudukan</label><input type="number" class="n-transportkedudukan" value="0" oninput="hitungTotalRow(\'' + id + '\')"></div>' +
+          '<div><label>Transport Tujuan</label><input type="number" class="n-transporttujuan" value="0" oninput="hitungTotalRow(\'' + id + '\')"></div>' +
+          '<div><label>Transport (non-SBM)</label><input type="number" class="n-transportlainnya" value="0" oninput="hitungTotalRow(\'' + id + '\')"></div>' +
+          '<div><label>Uang Harian</label><input type="number" class="n-uangharian" value="0" oninput="hitungTotalRow(\'' + id + '\')"></div>' +
+          '<div><label>Penginapan</label><input type="number" class="n-penginapan" value="0" oninput="hitungTotalRow(\'' + id + '\')"></div>' +
+          '<div><label>Uang Representatif</label><input type="number" class="n-uangrepresentatif" value="0" oninput="hitungTotalRow(\'' + id + '\')"></div>' +
+          '<div><label>Total</label><input type="number" class="n-total" value="0" readonly></div>' +
+          '<div class="nominatif-note">Transport Tiket/Kedudukan/Tujuan = saran otomatis SBM sesuai provinsi/daerah kelompoknya masing-masing.</div>' +
+        '</div>';
+
+      containerEl.appendChild(wrapper);
+    }
+
+    function onNamaOrangChange(inputEl) {
+      const orangWrapper = inputEl.closest('.orang-block');
+      const scopeId = orangWrapper.dataset.scope;
+      const nipInput = orangWrapper.querySelector('.o-nip');
+      const match = pegawaiList.find(function(p) { return p.nama === inputEl.value; });
+      if (match) {
+        nipInput.value = match.nip || '';
+        nipInput.setAttribute('readonly', 'readonly');
+        hitungNominatifRow(orangWrapper.id, scopeId);
+      } else {
+        nipInput.removeAttribute('readonly');
+      }
+    }
+
+    function hitungNominatifRow(orangId, scopeId) {
+      const orangWrapper = document.getElementById(orangId);
+      const scopeEl = document.getElementById(scopeId);
+      if (!orangWrapper || !scopeEl) return;
+      const tripEl = scopeEl.classList.contains('trip-block') ? scopeEl : scopeEl.closest('.trip-block');
+      const nama = orangWrapper.querySelector('.o-nama').value;
+      const provSel = scopeEl.querySelector('[data-role="scope-provinsi"]');
+      const daerahSel = scopeEl.querySelector('[data-role="scope-daerah"]');
+      const provinsi = provSel ? provSel.value : '';
+      const kabKota = daerahSel ? daerahSel.value : '';
+      const lamaHari = hitungLamaHariClient(tripEl.querySelector('.t-tglberangkat').value, tripEl.querySelector('.t-tglkembali').value);
+      if (!nama || !provinsi || !kabKota || !lamaHari) return;
+
+      google.script.run
+        .withSuccessHandler(function(saran) {
+          orangWrapper.querySelector('.n-transportpp').value = saran.transportPP;
+          orangWrapper.querySelector('.n-transportkedudukan').value = saran.transportKedudukan;
+          orangWrapper.querySelector('.n-transporttujuan').value = saran.transportTujuan;
+          orangWrapper.querySelector('.n-uangharian').value = saran.uangHarian;
+          orangWrapper.querySelector('.n-penginapan').value = saran.penginapan;
+          orangWrapper.querySelector('.n-uangrepresentatif').value = saran.uangRepresentatif;
+          hitungTotalRow(orangId);
+        })
+        .withFailureHandler(function(err) { console.error('Gagal ambil saran nominatif:', err.message); })
+        .hitungNominatifSaran({ namaPegawai: nama, provinsiTujuan: provinsi, kabKotaTujuan: kabKota, lamaHari: lamaHari });
+    }
+
+    function recalcScope(scopeEl) {
+      if (!scopeEl) return;
+      const container = scopeEl.querySelector(':scope > .orangContainer') || scopeEl.querySelector('.orangContainer');
+      if (!container) return;
+      container.querySelectorAll('.orang-block').forEach(function(w) {
+        if (w.querySelector('.o-nama').value) hitungNominatifRow(w.id, scopeEl.id);
+      });
+    }
+
+    function hitungTotalRow(id) {
+      const wrapper = document.getElementById(id);
+      const total = ['n-transportpp','n-transportkedudukan','n-transporttujuan','n-transportlainnya','n-uangharian','n-penginapan','n-uangrepresentatif']
+        .reduce(function(sum, cls) { return sum + (Number(wrapper.querySelector('.' + cls).value) || 0); }, 0);
+      wrapper.querySelector('.n-total').value = total;
+    }
+
+    function hitungLamaHariClient(tglB, tglK) {
+      if (!tglB || !tglK) return 0;
+      const d1 = new Date(tglB), d2 = new Date(tglK);
+      const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+      return diff > 0 ? diff : 0;
+    }
+
+    function isiDataOrangTerakhir(o) {
+      const orangWrapper = document.getElementById('orang_' + orangCount);
+      orangWrapper.querySelector('.o-nama').value = o.nama || '';
+      orangWrapper.querySelector('.o-nip').value = o.nip || '';
+      orangWrapper.querySelector('.o-tipe').value = o.tipeId || 'Penyelenggara';
+      orangWrapper.querySelector('.o-kelompok').value = o.namaKelompok || '';
+      orangWrapper.querySelector('.n-transportpp').value = o.transportPP || 0;
+      orangWrapper.querySelector('.n-transportkedudukan').value = o.transportKedudukan || 0;
+      orangWrapper.querySelector('.n-transporttujuan').value = o.transportTujuan || 0;
+      orangWrapper.querySelector('.n-transportlainnya').value = o.transportLainnya || 0;
+      orangWrapper.querySelector('.n-uangharian').value = o.uangHarian || 0;
+      orangWrapper.querySelector('.n-penginapan').value = o.penginapan || 0;
+      orangWrapper.querySelector('.n-uangrepresentatif').value = o.uangRepresentatif || 0;
+      hitungTotalRow(orangWrapper.id);
+    }
+
+    tambahTripBlock();
+
+    // ---- CARI & EDIT (tab 3) ------------------------------------------
+    function cariPengajuan() {
+      const kw = document.getElementById('f_cariEdit').value.toLowerCase().trim();
+      const box = document.getElementById('hasilCariBox');
+      if (!kw) { box.innerHTML = ''; return; }
+      const hasil = daftarPengajuan.filter(function(p) {
+        return (p.tujuan || '').toLowerCase().indexOf(kw) !== -1 || (p.idPengajuan || '').toLowerCase().indexOf(kw) !== -1;
+      }).slice(0, 15);
+      if (hasil.length === 0) {
+        box.innerHTML = '<p class="m3-caption">Tidak ada hasil.</p>';
+        return;
+      }
+      box.innerHTML = hasil.map(function(p) {
+        return '<div class="m3-list-item" style="cursor:pointer;" onclick="muatUntukEdit(\'' + p.idPengajuan + '\')">' +
+          '<div class="m3-list-item-info"><span class="m3-list-item-sub" style="font-weight:700; color:var(--m3-on-surface);">' + p.tujuan + '</span>' +
+          '<span class="m3-caption">' + p.jumlahOrang + ' orang' + (p.noSpm ? ' — SPM: ' + p.noSpm : '') + '</span></div>' +
+          '<span class="m3-badge-tag">' + p.status + '</span>' +
+        '</div>';
+      }).join('');
+    }
+
+    function muatUntukEdit(idPengajuan) {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          if (!data) { alert('Data tidak ditemukan.'); return; }
+          editIdPengajuan = idPengajuan;
+          switchTab('suratTugas');
+          document.getElementById('editIndicator').style.display = 'flex';
+          document.getElementById('btnBuatBaru').style.display = '';
+          document.getElementById('btnSimpan').innerHTML = '<span class="material-symbols-outlined">save</span> Update Surat Tugas';
+          document.getElementById('btnTambahTrip').style.display = 'none';
+          document.getElementById('hasilCariBox').innerHTML = '';
+          document.getElementById('f_cariEdit').value = '';
+
+          document.getElementById('f_sptjbPilihan').value = data.idSptjb;
+          onSptjbPilihanChange();
+
+          document.getElementById('tripBlocksContainer').innerHTML = '';
+          tripCount = 0;
+          kelompokCount = 0;
+          const tripId = tambahTripBlock();
+          const tripEl = document.getElementById(tripId);
+          const standarScopeId = 'standar_' + tripId;
+
+          tripEl.querySelector('.t-tujuan').value = data.trip.tujuan || '';
+          tripEl.querySelector('.t-hotelvendor').value = data.trip.hotelVendor || '';
+          tripEl.querySelector('.t-tglberangkat').value = data.trip.tglBerangkat || '';
+          tripEl.querySelector('.t-tglkembali').value = data.trip.tglKembali || '';
+          tripEl.querySelector('.t-nospm').value = data.trip.noSpm || '';
+          tripEl.querySelector('.t-nost').value = data.trip.noSt || '';
+          tripEl.querySelector('.t-nosk').value = data.trip.noSk || '';
+          tripEl.querySelector('.t-tahap').value = data.trip.tahap || '';
+          tripEl.querySelector('.t-kegiatantrip').value = data.trip.kegiatanTrip || '';
+
+          if (data.mode === 'kelompok') {
+            tripEl.querySelector('input[name="mode_' + tripId + '"][value="kelompok"]').checked = true;
+            onModeChange(tripId);
+            tripEl.querySelector('.kelompokContainer').innerHTML = '';
+
+            data.kelompokList.forEach(function(kel) {
+              tambahKelompokBlock(tripId);
+              const kelEls = tripEl.querySelectorAll('.kelompok-block');
+              const kelEl = kelEls[kelEls.length - 1];
+              kelEl.querySelector('.k-label').value = kel.namaKelompok || '';
+              kelEl.querySelector('.orangContainer').innerHTML = '';
+
+              (function(kelEl, kel) {
+                setTimeout(function() {
+                  kelEl.querySelector('.k-provinsi').value = kel.provinsi || '';
+                  onKelompokProvinsiChange(kelEl.id);
+                  setTimeout(function() { kelEl.querySelector('.k-daerah').value = kel.daerah || ''; }, 1200);
+                }, 400);
+              })(kelEl, kel);
+
+              kel.orangList.forEach(function(o) {
+                tambahBarisOrang(kelEl.querySelector('.orangContainer'), kelEl.id);
+                isiDataOrangTerakhir(o);
+              });
+            });
+          } else {
+            const standarScope = document.getElementById(standarScopeId);
+            standarScope.querySelector('.orangContainer').innerHTML = '';
+
+            setTimeout(function() {
+              tripEl.querySelector('.t-provinsi').value = data.trip.provinsi || '';
+              onTripProvinsiChange(tripId);
+              setTimeout(function() { tripEl.querySelector('.t-daerah').value = data.trip.daerah || ''; }, 1200);
+            }, 400);
+
+            data.orangList.forEach(function(o) {
+              tambahBarisOrang(standarScope.querySelector('.orangContainer'), standarScopeId);
+              isiDataOrangTerakhir(o);
+            });
+          }
+
+          window.scrollTo(0, 0);
+        })
+        .withFailureHandler(function(err) { alert('Gagal memuat data: ' + err.message); })
+        .getPengajuanUntukEdit(idPengajuan);
+    }
+
+    function resetKeFormBaru() {
+      editIdPengajuan = null;
+      document.getElementById('editIndicator').style.display = 'none';
+      document.getElementById('btnBuatBaru').style.display = 'none';
+      document.getElementById('btnSimpan').innerHTML = '<span class="material-symbols-outlined">save</span> Simpan Surat Tugas';
+      document.getElementById('btnTambahTrip').style.display = '';
+      document.getElementById('f_sptjbPilihan').value = '';
+      document.getElementById('infoSptjbTerpilih').style.display = 'none';
+      document.getElementById('tripBlocksContainer').innerHTML = '';
+      tripCount = 0;
+      kelompokCount = 0;
+      tambahTripBlock();
+    }
+
+    // ---- SUBMIT: Surat Tugas (baru ATAU edit) --------------------------
+    function submitSuratTugasForm() {
+      const tripBlocks = Array.from(document.querySelectorAll('.trip-block'));
+      const tripList = tripBlocks.map(function(tw) {
+        const tripId = tw.id;
+        const modeInput = tw.querySelector('input[name="mode_' + tripId + '"]:checked');
+        const mode = modeInput ? modeInput.value : 'standar';
+
+        function bacaOrang(wrapper) {
+          return {
+            nama: wrapper.querySelector('.o-nama').value,
+            nip: wrapper.querySelector('.o-nip').value,
+            tipeId: wrapper.querySelector('.o-tipe').value,
+            namaKelompok: wrapper.querySelector('.o-kelompok').value,
+            transportPP: Number(wrapper.querySelector('.n-transportpp').value) || 0,
+            transportKedudukan: Number(wrapper.querySelector('.n-transportkedudukan').value) || 0,
+            transportTujuan: Number(wrapper.querySelector('.n-transporttujuan').value) || 0,
+            transportLainnya: Number(wrapper.querySelector('.n-transportlainnya').value) || 0,
+            uangHarian: Number(wrapper.querySelector('.n-uangharian').value) || 0,
+            penginapan: Number(wrapper.querySelector('.n-penginapan').value) || 0,
+            uangRepresentatif: Number(wrapper.querySelector('.n-uangrepresentatif').value) || 0,
+            totalNominatif: Number(wrapper.querySelector('.n-total').value) || 0
+          };
+        }
+
+        let orangList = [];
+        let tripProvinsi = '', tripDaerah = '';
+
+        if (mode === 'kelompok') {
+          Array.from(tw.querySelectorAll('.kelompok-block')).forEach(function(kb) {
+            const kProvinsi = kb.querySelector('.k-provinsi').value;
+            const kDaerah = kb.querySelector('.k-daerah').value;
+            const kLabel = kb.querySelector('.k-label').value.trim() || 'Kelompok';
+            Array.from(kb.querySelectorAll('.orang-block')).forEach(function(wrapper) {
+              if (!wrapper.querySelector('.o-nama').value) return;
+              const o = bacaOrang(wrapper);
+              o.namaKelompok = kLabel;
+              o.tujuan = kDaerah; o.provinsi = kProvinsi; o.daerah = kDaerah;
+              orangList.push(o);
+            });
+          });
+        } else {
+          tripProvinsi = tw.querySelector('.t-provinsi').value;
+          tripDaerah = tw.querySelector('.t-daerah').value;
+          orangList = Array.from(tw.querySelector('.mode-standar-block').querySelectorAll('.orang-block'))
+            .map(bacaOrang).filter(function(o) { return o.nama; });
+        }
+
+        return {
+          trip: {
+            tujuan: tw.querySelector('.t-tujuan').value,
+            provinsi: tripProvinsi, daerah: tripDaerah,
+            hotelVendor: tw.querySelector('.t-hotelvendor').value,
+            tglBerangkat: tw.querySelector('.t-tglberangkat').value,
+            tglKembali: tw.querySelector('.t-tglkembali').value,
+            noSpm: tw.querySelector('.t-nospm').value,
+            noSt: tw.querySelector('.t-nost').value,
+            noSk: tw.querySelector('.t-nosk').value,
+            tahap: tw.querySelector('.t-tahap').value,
+            kegiatanTrip: tw.querySelector('.t-kegiatantrip').value
+          },
+          orangList: orangList
+        };
+      }).filter(function(t) { return t.orangList.length > 0; });
+
+      if (tripList.length === 0) { alert('Isi minimal 1 Surat Tugas dengan minimal 1 orang.'); return; }
+
+      const idSptjbPilihan = document.getElementById('f_sptjbPilihan').value;
+      if (!idSptjbPilihan) { alert('Pilih SPTJB terlebih dahulu.'); return; }
+
+      document.getElementById('loadingMsg').style.display = '';
+
+      if (editIdPengajuan) {
+        google.script.run
+          .withSuccessHandler(handleSuratTugasResult)
+          .withFailureHandler(handleSuratTugasFailure)
+          .submitPengajuan({ idPengajuanEdit: editIdPengajuan, tripList: tripList, token: currentToken });
+      } else {
+        google.script.run
+          .withSuccessHandler(handleSuratTugasResult)
+          .withFailureHandler(handleSuratTugasFailure)
+          .submitSuratTugas({ idSptjbExisting: idSptjbPilihan, tripList: tripList, token: currentToken });
+      }
+    }
+
+    function handleSuratTugasResult(res) {
+      document.getElementById('loadingMsg').style.display = 'none';
+      const box = document.getElementById('resultBox');
+      box.style.display = '';
+      if (res.ok) {
+        box.textContent = (res.isEdit ? 'Berhasil diupdate! ' : 'Berhasil disimpan! ') +
+          res.jumlahTrip + ' Surat Tugas, ' + res.jumlahOrang + ' orang total.';
+        setTimeout(function() { window.top.location = '<?= appUrl ?>?page=index&token=' + currentToken; }, 1800);
+      } else {
+        box.textContent = 'Gagal: ' + res.error;
+      }
+    }
+
+    function handleSuratTugasFailure(err) {
+      document.getElementById('loadingMsg').style.display = 'none';
+      alert('Error: ' + err.message);
+    }
+  </script>
+</body>
+</html><!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <?!= include('Styles'); ?>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
+  <style>
+    /* ==========================================================
+       Material-3-inspired theme -- SCOPED to .m3-page only.
+       Does not touch Styles.html / other pages.
+       ========================================================== */
+    .m3-page {
+      --m3-primary: #00236f;
+      --m3-primary-container: #1e3a8a;
+      --m3-on-primary: #ffffff;
+      --m3-on-primary-container: #dce1ff;
+      --m3-secondary: #006c4a;
+      --m3-secondary-container: #82f5c1;
+      --m3-on-secondary: #ffffff;
+      --m3-on-secondary-container: #00714e;
+      --m3-tertiary-container: #ffdcc3;
+      --m3-on-tertiary-container: #6e3900;
+      --m3-error: #ba1a1a;
+      --m3-error-container: #ffdad6;
+      --m3-on-error-container: #93000a;
+      --m3-surface-container-lowest: #ffffff;
+      --m3-surface-container-low: #f2f3ff;
+      --m3-surface-container: #eaedff;
+      --m3-surface-container-high: #e2e7ff;
+      --m3-surface-container-highest: #dae2fd;
+      --m3-on-surface: #131b2e;
+      --m3-on-surface-variant: #444651;
+      --m3-outline: #757682;
+      --m3-outline-variant: #c5c5d3;
+      --m3-radius-lg: 20px;
+      --m3-radius-md: 14px;
+      --m3-radius-sm: 12px;
+      color: var(--m3-on-surface);
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .m3-page .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      font-size: 20px; line-height: 1; vertical-align: middle; user-select: none;
+    }
+
+    .m3-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .m3-eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--m3-primary); font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+    .m3-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 2px 0 4px; color: var(--m3-on-surface); }
+    .m3-subtitle { color: var(--m3-on-surface-variant); font-size: 13.5px; max-width: 640px; margin: 0; }
+    .m3-status-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--m3-surface-container); color: var(--m3-on-surface-variant); padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; align-self: flex-start; }
+    .m3-status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--m3-secondary); }
+
+    .m3-tabbar { display: inline-flex; gap: 4px; padding: 5px; background: var(--m3-surface-container-high); border-radius: 999px; align-self: center; flex-wrap: wrap; }
+    .m3-tab-btn { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; padding: 9px 20px; border-radius: 999px; font-family: inherit; font-weight: 600; font-size: 13.5px; color: var(--m3-on-surface-variant); cursor: pointer; transition: background .15s, color .15s; }
+    .m3-tab-btn:hover:not(.active) { background: var(--m3-surface-container); color: var(--m3-on-surface); }
+    .m3-tab-btn.active { background: var(--m3-primary); color: var(--m3-on-primary); box-shadow: 0 2px 8px rgba(0,35,111,.28); }
+
+    .m3-tab-panel { display: none; }
+    .m3-tab-panel.active { display: flex; flex-direction: column; gap: 18px; }
+
+    .m3-card { background: var(--m3-surface-container-lowest); border-radius: var(--m3-radius-lg); box-shadow: 0 1px 2px rgba(19,27,46,.05), 0 10px 28px rgba(19,27,46,.06); padding: 26px 28px; display: flex; flex-direction: column; gap: 16px; }
+    .m3-card-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; background: var(--m3-surface-container-low); margin: -26px -28px 0; padding: 20px 28px; border-top-left-radius: var(--m3-radius-lg); border-top-right-radius: var(--m3-radius-lg); }
+    .m3-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; background: var(--m3-surface-container-low); margin: 0 -28px -26px; padding: 18px 28px; border-bottom-left-radius: var(--m3-radius-lg); border-bottom-right-radius: var(--m3-radius-lg); }
+
+    .m3-icon-badge { width: 40px; height: 40px; border-radius: var(--m3-radius-sm); flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--m3-primary-container); color: var(--m3-on-primary-container); }
+    .m3-icon-badge.secondary { background: var(--m3-secondary); color: var(--m3-on-secondary); }
+    .m3-icon-badge.tonal { background: var(--m3-tertiary-container); color: var(--m3-on-tertiary-container); }
+
+    .m3-card-title-row { display: flex; align-items: center; gap: 12px; }
+    .m3-heading { font-size: 16.5px; font-weight: 700; color: var(--m3-on-surface); }
+    .m3-caption { font-size: 12.5px; color: var(--m3-on-surface-variant); }
+    .m3-label-strong { font-size: 13px; font-weight: 700; color: var(--m3-on-surface); }
+    .m3-badge-tag { padding: 2px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+
+    .m3-info-box { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border-radius: var(--m3-radius-sm); background: var(--m3-surface-container); border: 1px solid var(--m3-surface-container-high); }
+    .m3-info-box p { margin: 0; font-size: 12.5px; color: var(--m3-on-surface-variant); line-height: 1.6; }
+
+    .m3-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .m3-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    @media (max-width: 760px) { .m3-grid-2, .m3-grid-3 { grid-template-columns: 1fr; } }
+    .col-span-2 { grid-column: span 2; }
+    .col-span-3 { grid-column: span 3; }
+    @media (max-width: 760px) { .col-span-2, .col-span-3 { grid-column: span 1; } }
+
+    .m3-field { display: flex; flex-direction: column; gap: 5px; }
+    .m3-field label { font-size: 12px; font-weight: 600; color: var(--m3-on-surface-variant); }
+    .m3-hint { font-weight: 400; color: var(--m3-outline); }
+
+    .m3-page input, .m3-page select {
+      height: 40px; padding: 0 12px; border-radius: 10px; border: none;
+      background: var(--m3-surface-container-low); color: var(--m3-on-surface);
+      font-family: inherit; font-size: 13.5px; outline: none; transition: box-shadow .15s, background .15s;
+      width: 100%;
+    }
+    .m3-page input:focus, .m3-page select:focus { background: var(--m3-surface-container-lowest); box-shadow: 0 0 0 2px var(--m3-primary); }
+    .m3-page input[readonly] { background: var(--m3-surface-container); color: var(--m3-on-surface-variant); cursor: not-allowed; }
+
+    .m3-readonly-box { display: flex; align-items: center; height: 40px; padding: 0 12px; border-radius: 10px; background: var(--m3-surface-container); color: var(--m3-primary); font-weight: 700; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .m3-btn { display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 22px; border: none; border-radius: 999px; font-family: inherit; font-weight: 700; font-size: 13.5px; cursor: pointer; transition: transform .12s, box-shadow .12s; white-space: nowrap; }
+    .m3-btn-primary { background: var(--m3-primary); color: var(--m3-on-primary); box-shadow: 0 4px 14px rgba(0,35,111,.3); }
+    .m3-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,35,111,.4); }
+    .m3-btn-outline { background: var(--m3-surface-container-lowest); color: var(--m3-primary); border: 1.5px solid var(--m3-outline-variant); }
+    .m3-btn-outline:hover { background: var(--m3-surface-container-low); }
+    .m3-btn-ghost { background: var(--m3-surface-container); color: var(--m3-on-surface); }
+    .m3-btn-ghost:hover { background: var(--m3-surface-container-high); }
+    .m3-btn.sm { height: 34px; padding: 0 16px; font-size: 12.5px; }
+
+    .m3-list { display: flex; flex-direction: column; gap: 8px; }
+    .m3-list-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-radius: var(--m3-radius-sm); background: var(--m3-surface-container-low); }
+    .m3-list-item-info { display: flex; flex-direction: column; }
+    .m3-list-item-title { font-weight: 700; color: var(--m3-primary); font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; }
+    .m3-list-item-sub { font-size: 12.5px; color: var(--m3-on-surface); }
+
+    .trip-block { display: flex; flex-direction: column; gap: 16px; }
+    .trip-block-head, .kelompok-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .trip-block-title { display: flex; align-items: center; gap: 12px; }
+    .remove-trip-btn, .remove-btn { background: var(--m3-error-container); color: var(--m3-on-error-container); border: none; border-radius: 999px; padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+
+    .m3-mode-box { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: var(--m3-radius-sm); background: var(--m3-surface-container-low); border: 1px solid var(--m3-surface-container-high); }
+    .m3-mode-box-head { display: flex; align-items: flex-start; gap: 12px; }
+    .m3-segmented { display: inline-flex; padding: 4px; background: var(--m3-surface-container-high); border-radius: 12px; gap: 4px; flex-wrap: wrap; }
+    .m3-segment { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--m3-on-surface-variant); }
+    .m3-segment input { display: none; }
+    .m3-segment:has(input:checked) { background: var(--m3-surface-container-lowest); color: var(--m3-primary); box-shadow: 0 1px 3px rgba(19,27,46,.12); }
+
+    .mode-standar-block, .mode-kelompok-block { display: flex; flex-direction: column; gap: 12px; }
+    .m3-kelompok-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .kelompokContainer { display: flex; flex-direction: column; gap: 14px; }
+    .m3-subcard { background: var(--m3-surface-container-low); border: 1px solid var(--m3-surface-container-high); border-radius: var(--m3-radius-md); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .kelompok-head input.k-label { max-width: 260px; font-weight: 700; }
+
+    .orang-block { padding: 12px 0; border-bottom: 1px solid var(--m3-surface-container-high); }
+    .orang-block:last-child { border-bottom: none; }
+    .orang-row { display: grid; grid-template-columns: 2fr 1.3fr 1fr 1fr auto; gap: 10px; align-items: end; }
+    @media (max-width: 760px) { .orang-row { grid-template-columns: 1fr; } }
+
+    .nominatif-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; padding: 12px; background: var(--m3-surface-container); border-radius: var(--m3-radius-sm); }
+    @media (max-width: 760px) { .nominatif-row { grid-template-columns: repeat(2, 1fr); } }
+    .nominatif-row label { font-size: 10.5px; font-weight: 700; color: var(--m3-on-surface-variant); text-transform: uppercase; letter-spacing: .02em; }
+    .nominatif-row input { height: 34px; padding: 0 8px; font-size: 12.5px; }
+    .n-total { font-weight: 700; color: var(--m3-primary); }
+    .nominatif-note { font-size: 11px; color: var(--m3-on-surface-variant); margin-top: 4px; grid-column: 1 / -1; }
+
+    .m3-note-box { background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); padding: 12px 16px; border-radius: var(--m3-radius-sm); font-size: 13px; font-weight: 600; display: none; }
+    .m3-edit-flag { display: none; align-items: center; gap: 8px; background: var(--m3-error-container); color: var(--m3-on-error-container); padding: 10px 14px; border-radius: var(--m3-radius-sm); font-weight: 700; font-size: 12.5px; }
+
+    .m3-search-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .m3-search-row .m3-field { flex: 1; min-width: 220px; }
+
+    .m3-print-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--m3-surface-container-high); flex-wrap: wrap; }
+    .m3-print-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .m3-print-btn { padding: 8px 16px; font-size: 12px; border-radius: 999px; border: 1.5px solid var(--m3-outline-variant); background: var(--m3-surface-container-lowest); cursor: pointer; font-family: inherit; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+    .m3-print-btn.ready { border-color: var(--m3-primary); color: var(--m3-primary); }
+    .m3-print-btn.ready:hover { background: var(--m3-surface-container-low); }
+    .m3-print-btn.soon { color: var(--m3-outline); cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <?!= include('Menu', {user: user, activePage: activePage, appUrl: appUrl}); ?>
+
+  <div class="content">
+    <div class="m3-page">
+
+      <div class="m3-header">
+        <div>
+          <div class="m3-eyebrow">
+            <span class="material-symbols-outlined">assignment_add</span> Form Pengajuan
+          </div>
+          <div class="m3-title">Buat Pengajuan Perjalanan Dinas</div>
+          <p class="m3-subtitle">Penyusunan SPTJB, penerbitan Surat Tugas, serta kalkulasi rincian biaya berdasarkan Standar Biaya Masukan (SBM).</p>
+        </div>
+        <div class="m3-status-pill"><span class="dot"></span> Terhubung ke Database GAS</div>
+      </div>
+
+      <div class="m3-tabbar">
+        <button type="button" class="m3-tab-btn active" id="tabBtn-sptjb" onclick="switchTab('sptjb')">
+          <span class="material-symbols-outlined">description</span> SPTJB
+        </button>
+        <button type="button" class="m3-tab-btn" id="tabBtn-suratTugas" onclick="switchTab('suratTugas')">
+          <span class="material-symbols-outlined">badge</span> Surat Tugas
+        </button>
+        <button type="button" class="m3-tab-btn" id="tabBtn-cariedit" onclick="switchTab('cariedit')">
+          <span class="material-symbols-outlined">edit_note</span> Cari &amp; Edit
+        </button>
+        <button type="button" class="m3-tab-btn" id="tabBtn-print" onclick="switchTab('print')">
+          <span class="material-symbols-outlined">print</span> Print
+        </button>
+      </div>
+
+      <!-- ===================== TAB: SPTJB ===================== -->
+      <div id="tabPanel-sptjb" class="m3-tab-panel active">
+        <div class="m3-card">
+          <div class="m3-card-banner">
+            <div class="m3-card-title-row">
+              <span class="m3-icon-badge"><span class="material-symbols-outlined">feed</span></span>
+              <div>
+                <div class="m3-heading">Form SPTJB (Induk Pengikatan Anggaran)</div>
+                <div class="m3-caption">Simpan SPTJB dulu, lalu lanjutkan ke tab Surat Tugas untuk menambahkan personil.</div>
+              </div>
+            </div>
+            <div class="m3-readonly-box" id="previewSptjbBox">Menghitung No SPTJB berikutnya...</div>
+          </div>
+
+          <div class="m3-grid-3">
+            <div class="m3-field col-span-3">
+              <label>Kegiatan (SPTJB)</label>
+              <input id="f_kegiatan">
+            </div>
+            <div class="m3-field">
+              <label>Tanggal Mulai</label>
+              <input type="date" id="f_tglMulai">
+            </div>
+            <div class="m3-field">
+              <label>Tanggal Selesai</label>
+              <input type="date" id="f_tglSelesai">
+            </div>
+            <div class="m3-field">
+              <label>Jumlah Pengajuan (Rp)</label>
+              <input type="number" id="f_jumlahPengajuan">
+            </div>
+            <div class="m3-field">
+              <label>Kegiatan</label>
+              <select id="sel_kegiatan" onchange="onKegiatanChange()"><option value="">-- pilih --</option></select>
+            </div>
+            <div class="m3-field">
+              <label>Output</label>
+              <select id="sel_output" onchange="onOutputChange()"><option value="">-- pilih Kegiatan dulu --</option></select>
+            </div>
+            <div class="m3-field">
+              <label>Sub Output</label>
+              <select id="sel_suboutput" onchange="onSubOutputChange()"><option value="">-- pilih Output dulu --</option></select>
+            </div>
+            <div class="m3-field">
+              <label>Akun MAK</label>
+              <select id="sel_akun" onchange="onAkunChange()"><option value="">-- pilih SubOutput dulu --</option></select>
+            </div>
+            <div class="m3-field">
+              <label>No Akun</label>
+              <input id="f_noAkun" readonly>
+            </div>
+            <div class="m3-field col-span-3">
+              <label>Nama Akun</label>
+              <input id="f_namaAkun" readonly>
+            </div>
+            <div class="m3-field col-span-3">
+              <label>Klasifikasi Anggaran (otomatis)</label>
+              <input id="f_klasifikasiAnggaran" readonly>
+            </div>
+          </div>
+
+          <div class="m3-info-box">
+            <span class="m3-icon-badge tonal"><span class="material-symbols-outlined">info</span></span>
+            <p>Setelah SPTJB disimpan, nomornya terbit permanen dan langsung muncul di dropdown <b>"Pilih SPTJB"</b> pada tab Surat Tugas -- tidak perlu memuat ulang halaman.</p>
+          </div>
+
+          <div class="m3-card-footer">
+            <span class="m3-caption">Semua kolom bertanda wajib diisi sebelum disimpan.</span>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <span id="loadingMsgSptjb" style="display:none; color: var(--m3-on-surface-variant); font-size: 13px;">Menyimpan...</span>
+              <button type="button" class="m3-btn m3-btn-primary" onclick="submitSptjbForm()">
+                <span class="material-symbols-outlined">save</span> Simpan SPTJB
+              </button>
+            </div>
+          </div>
+          <div id="resultBoxSptjb" class="m3-note-box"></div>
+        </div>
+
+        <div class="m3-card">
+          <div class="m3-card-title-row">
+            <span class="m3-icon-badge"><span class="material-symbols-outlined">list_alt</span></span>
+            <div class="m3-heading">Daftar SPTJB Tersimpan</div>
+          </div>
+          <div id="daftarSptjbTersimpanBox">
+            <? if (sptjbList.length === 0) { ?>
+              <p class="m3-caption">Belum ada SPTJB. Simpan SPTJB pertama di atas.</p>
+            <? } else { ?>
+              <div class="m3-list" id="daftarSptjbTersimpanList">
+                <? sptjbList.slice(0, 10).forEach(function(s) { ?>
+                  <div class="m3-list-item">
+                    <div class="m3-list-item-info">
+                      <span class="m3-list-item-title"><?= s.noSptjb ?></span>
+                      <span class="m3-list-item-sub"><?= s.kegiatan ?></span>
+                    </div>
+                    <button type="button" class="m3-btn m3-btn-outline sm" onclick="bukaSuratTugasUntukSptjb('<?= s.idSptjb ?>')">
+                      <span class="material-symbols-outlined">badge</span> Kelola Surat Tugas
+                    </button>
+                  </div>
+                <? }); ?>
+              </div>
+            <? } ?>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== TAB: SURAT TUGAS ===================== -->
+      <div id="tabPanel-suratTugas" class="m3-tab-panel">
+        <div class="m3-card">
+          <div class="m3-card-banner">
+            <div class="m3-card-title-row">
+              <span class="m3-icon-badge secondary"><span class="material-symbols-outlined">assignment_turned_in</span></span>
+              <div>
+                <div class="m3-heading">Tambah Surat Tugas</div>
+                <div class="m3-caption">Terhubung ke SPTJB manapun -- baru maupun lama.</div>
+              </div>
+            </div>
+          </div>
+
+          <p class="m3-edit-flag" id="editIndicator">
+            <span class="material-symbols-outlined">edit</span> Sedang MENGEDIT Surat Tugas yang sudah ada
+          </p>
+
+          <div class="m3-field">
+            <label>Pilih SPTJB</label>
+            <select id="f_sptjbPilihan" onchange="onSptjbPilihanChange()">
+              <option value="">-- pilih SPTJB --</option>
+              <? sptjbList.forEach(function(s) { ?>
+                <option value="<?= s.idSptjb ?>" data-noakun="<?= s.noAkun ?>"><?= s.noSptjb ?> — <?= s.kegiatan ?></option>
+              <? }); ?>
+            </select>
+            <span class="m3-caption">Daftar ini memuat SEMUA SPTJB. Surat Tugas baru bisa ditambahkan ke SPTJB manapun kapan saja.</span>
+            <div id="infoSptjbTerpilih" class="m3-note-box"></div>
+          </div>
+
+          <div id="tripBlocksContainer" style="display:flex; flex-direction:column; gap:20px;"></div>
+          <button type="button" class="m3-btn m3-btn-outline" id="btnTambahTrip" onclick="tambahTripBlock()">
+            <span class="material-symbols-outlined">add_circle</span> Tambah Surat Tugas Baru
+          </button>
+
+          <div class="m3-card-footer">
+            <span class="m3-caption">Nominatif adalah saran batas maksimal SBM -- boleh disesuaikan manual.</span>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <span id="loadingMsg" style="display:none; color: var(--m3-on-surface-variant); font-size: 13px;">Menyimpan...</span>
+              <button type="button" class="m3-btn m3-btn-primary" id="btnSimpan" onclick="submitSuratTugasForm()">
+                <span class="material-symbols-outlined">save</span> Simpan Surat Tugas
+              </button>
+            </div>
+          </div>
+          <div id="resultBox" class="m3-note-box"></div>
+        </div>
+      </div>
+
+      <!-- ===================== TAB: CARI & EDIT ===================== -->
+      <div id="tabPanel-cariedit" class="m3-tab-panel">
+        <div class="m3-card">
+          <div class="m3-card-title-row">
+            <span class="m3-icon-badge"><span class="material-symbols-outlined">manage_search</span></span>
+            <div>
+              <div class="m3-heading">Cari &amp; Edit Surat Tugas</div>
+              <div class="m3-caption">Cari berdasarkan nama orang atau tujuan.</div>
+            </div>
+          </div>
+          <div class="m3-search-row">
+            <div class="m3-field">
+              <label>Kata Kunci</label>
+              <input id="f_cariEdit" placeholder="Ketik lalu tekan Enter..." onkeydown="if(event.key==='Enter') cariPengajuan();">
+            </div>
+            <button type="button" class="m3-btn m3-btn-primary" onclick="cariPengajuan()">
+              <span class="material-symbols-outlined">search</span> Cari
+            </button>
+            <button type="button" class="m3-btn m3-btn-ghost" id="btnBuatBaru" style="display:none;" onclick="resetKeFormBaru()">
+              <span class="material-symbols-outlined">add</span> Buat Baru
+            </button>
+          </div>
+          <div id="hasilCariBox" class="m3-list"></div>
+        </div>
+      </div>
+
+      <!-- ===================== TAB: PRINT ===================== -->
+      <div id="tabPanel-print" class="m3-tab-panel">
+        <div class="m3-card">
+          <div class="m3-card-title-row">
+            <span class="m3-icon-badge"><span class="material-symbols-outlined">print</span></span>
+            <div>
+              <div class="m3-heading">Cetak Dokumen per SPTJB</div>
+              <div class="m3-caption">Daftar Nominatif sudah bisa dicetak. SPTJB/SPBY/Kwitansi masih menunggu contoh format resmi.</div>
+            </div>
+          </div>
+          <div id="printListBox">
+            <? daftarSptjbPrint.forEach(function(s) { ?>
+              <div class="m3-print-row">
+                <div>
+                  <div class="m3-list-item-title" style="color:var(--m3-on-surface);"><?= s.noSptjb ?></div>
+                  <div class="m3-caption"><?= s.kegiatan ?> — <?= s.jumlahTrip ?> Surat Tugas, <?= s.jumlahOrang ?> orang</div>
+                </div>
+                <div class="m3-print-btns">
+                  <button type="button" class="m3-print-btn ready" onclick="cetakDokumen('<?= s.idSptjb ?>', 'nominatif', this)">
+                    <span class="material-symbols-outlined">download</span> Daftar Nominatif
+                  </button>
+                  <button type="button" class="m3-print-btn soon" title="Belum ada format referensi" onclick="cetakDokumen('<?= s.idSptjb ?>', 'sptjb', this)">SPTJB</button>
+                  <button type="button" class="m3-print-btn soon" title="Belum ada format referensi" onclick="cetakDokumen('<?= s.idSptjb ?>', 'spby', this)">SPBY</button>
+                  <button type="button" class="m3-print-btn soon" title="Belum ada format referensi" onclick="cetakDokumen('<?= s.idSptjb ?>', 'kwitansi', this)">Kwitansi</button>
+                </div>
+              </div>
+            <? }); ?>
+            <? if (daftarSptjbPrint.length === 0) { ?>
+              <p class="m3-caption">Belum ada SPTJB yang bisa dicetak.</p>
+            <? } ?>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function switchTab(name) {
+      ['sptjb', 'suratTugas', 'cariedit', 'print'].forEach(function(n) {
+        document.getElementById('tabPanel-' + n).classList.toggle('active', n === name);
+        document.getElementById('tabBtn-' + n).classList.toggle('active', n === name);
+      });
+    }
+
+    function cetakDokumen(idSptjb, jenis, btnEl) {
+      const fnMap = { nominatif: 'cetakDaftarNominatif', sptjb: 'cetakSptjb', spby: 'cetakSpby', kwitansi: 'cetakKwitansi' };
+      const teksAsli = btnEl.innerHTML;
+      btnEl.textContent = 'Memproses...';
+      btnEl.disabled = true;
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btnEl.innerHTML = teksAsli;
+          btnEl.disabled = false;
+          if (res.ok) { window.open(res.url, '_blank'); } else { alert(res.error); }
+        })
+        .withFailureHandler(function(err) {
+          btnEl.innerHTML = teksAsli;
+          btnEl.disabled = false;
+          alert('Error: ' + err.message);
+        })
+        [fnMap[jenis]](idSptjb);
+    }
+
+    const pegawaiList = <?!= JSON.stringify(pegawaiList) ?>;
+    const refAkun = <?!= JSON.stringify(refAkun) ?>;
+    const kodeProgram = <?!= JSON.stringify(kodeProgram) ?>;
+    const currentToken = <?!= JSON.stringify(getCurrentToken_()) ?>;
+    const daftarPengajuan = <?!= JSON.stringify(daftarPengajuan) ?>;
+    let editIdPengajuan = null;
+    let tripCount = 0;
+    let orangCount = 0;
+    let kelompokCount = 0;
+
+    function isiOpsiSimple(selectEl, items, placeholder) {
+      selectEl.innerHTML = '<option value="">' + placeholder + '</option>' +
+        items.map(function(v) { return '<option value="' + v.replace(/"/g,'') + '">' + v + '</option>'; }).join('');
+    }
+
+    // ---- SPTJB (tab 1) ----------------------------------------------
+    function muatPreviewNoSptjb() {
+      const box = document.getElementById('previewSptjbBox');
+      box.textContent = 'Menghitung...';
+      google.script.run
+        .withSuccessHandler(function(noSptjb) { box.textContent = noSptjb; })
+        .withFailureHandler(function(err) {
+          box.textContent = 'Digenerate otomatis saat disimpan';
+          console.error('Gagal ambil preview No SPTJB:', err.message);
+        })
+        .previewNoSptjb();
+    }
+    muatPreviewNoSptjb();
+
+    function isiOpsi(selectEl, items, getLabel, placeholder) {
+      selectEl.innerHTML = '<option value="">' + placeholder + '</option>' +
+        items.map(function(it) { return '<option value="' + it.kode + '">' + getLabel(it) + '</option>'; }).join('');
+    }
+
+    function initKegiatanDropdown() {
+      isiOpsi(document.getElementById('sel_kegiatan'), refAkun.kegiatan,
+        function(k) { return k.kode + ' — ' + k.nama; }, '-- pilih Kegiatan --');
+    }
+    initKegiatanDropdown();
+
+    function onKegiatanChange() {
+      const kode = document.getElementById('sel_kegiatan').value;
+      const outputs = refAkun.output.filter(function(o) { return o.kegiatanKode === kode; });
+      isiOpsi(document.getElementById('sel_output'), outputs,
+        function(o) { return o.kode + ' — ' + o.nama; }, outputs.length ? '-- pilih Output --' : '-- tidak ada Output --');
+      resetDownstream('output');
+    }
+
+    function onOutputChange() {
+      const kegiatanKode = document.getElementById('sel_kegiatan').value;
+      const outputKode = document.getElementById('sel_output').value;
+      const subs = refAkun.suboutput.filter(function(s) { return s.kegiatanKode === kegiatanKode && s.outputKode === outputKode; });
+      isiOpsi(document.getElementById('sel_suboutput'), subs,
+        function(s) { return s.kode + ' — ' + s.nama; }, subs.length ? '-- pilih Sub Output --' : '-- tidak ada Sub Output --');
+      resetDownstream('suboutput');
+    }
+
+    function onSubOutputChange() {
+      const kegiatanKode = document.getElementById('sel_kegiatan').value;
+      const outputKode = document.getElementById('sel_output').value;
+      const subKode = document.getElementById('sel_suboutput').value;
+      const akuns = refAkun.akun.filter(function(a) {
+        return a.kegiatanKode === kegiatanKode && a.outputKode === outputKode && a.suboutputKode === subKode;
+      });
+      isiOpsi(document.getElementById('sel_akun'), akuns,
+        function(a) { return a.kode + ' — ' + a.nama; }, akuns.length ? '-- pilih Akun --' : '-- tidak ada Akun --');
+      resetDownstream('akun');
+    }
+
+    function onAkunChange() {
+      const akunKode = document.getElementById('sel_akun').value;
+      const akun = refAkun.akun.find(function(a) { return a.kode === akunKode; });
+      if (!akun) {
+        document.getElementById('f_noAkun').value = '';
+        document.getElementById('f_namaAkun').value = '';
+        document.getElementById('f_klasifikasiAnggaran').value = '';
+        return;
+      }
+      document.getElementById('f_noAkun').value = akun.kode;
+      document.getElementById('f_namaAkun').value = akun.nama;
+      const subSuffix = akun.suboutputKode && akun.suboutputKode.indexOf('.') !== -1
+        ? akun.suboutputKode.split('.')[1] : (akun.suboutputKode || '');
+      const parts = [kodeProgram, akun.kegiatanKode, akun.outputKode, subSuffix, akun.kode].filter(Boolean);
+      document.getElementById('f_klasifikasiAnggaran').value = parts.join('.');
+    }
+
+    function resetDownstream(fromLevel) {
+      if (fromLevel === 'output' || fromLevel === 'kegiatan') {
+        document.getElementById('sel_suboutput').innerHTML = '<option value="">-- pilih Output dulu --</option>';
+        document.getElementById('sel_akun').innerHTML = '<option value="">-- pilih SubOutput dulu --</option>';
+      }
+      if (fromLevel === 'suboutput') {
+        document.getElementById('sel_akun').innerHTML = '<option value="">-- pilih SubOutput dulu --</option>';
+      }
+      document.getElementById('f_noAkun').value = '';
+      document.getElementById('f_namaAkun').value = '';
+      document.getElementById('f_klasifikasiAnggaran').value = '';
+    }
+
+    function tambahKartuSptjbTersimpan(idSptjb, noSptjb, kegiatan) {
+      const box = document.getElementById('daftarSptjbTersimpanBox');
+      let list = document.getElementById('daftarSptjbTersimpanList');
+      if (!list) {
+        // sebelumnya kosong ("Belum ada SPTJB...") -- ganti jadi list beneran
+        box.innerHTML = '<div class="m3-list" id="daftarSptjbTersimpanList"></div>';
+        list = document.getElementById('daftarSptjbTersimpanList');
+      }
+      const item = document.createElement('div');
+      item.className = 'm3-list-item';
+      item.innerHTML =
+        '<div class="m3-list-item-info">' +
+          '<span class="m3-list-item-title"></span>' +
+          '<span class="m3-list-item-sub"></span>' +
+        '</div>' +
+        '<button type="button" class="m3-btn m3-btn-outline sm">' +
+          '<span class="material-symbols-outlined">badge</span> Kelola Surat Tugas' +
+        '</button>';
+      item.querySelector('.m3-list-item-title').textContent = noSptjb;
+      item.querySelector('.m3-list-item-sub').textContent = kegiatan;
+      item.querySelector('button').addEventListener('click', function() { bukaSuratTugasUntukSptjb(idSptjb); });
+      list.insertBefore(item, list.firstChild); // SPTJB terbaru muncul paling atas
+    }
+
+    function submitSptjbForm() {
+      const kegiatan = document.getElementById('f_kegiatan').value.trim();
+      const tglMulai = document.getElementById('f_tglMulai').value;
+      const tglSelesai = document.getElementById('f_tglSelesai').value;
+      const noAkun = document.getElementById('f_noAkun').value;
+      if (!kegiatan || !tglMulai || !tglSelesai) { alert('Isi Kegiatan, Tanggal Mulai, dan Tanggal Selesai.'); return; }
+      if (!noAkun) { alert('Pilih Klasifikasi Anggaran sampai No Akun terisi.'); return; }
+
+      const formData = {
+        kegiatan: kegiatan, tglMulai: tglMulai, tglSelesai: tglSelesai,
+        noAkun: noAkun, namaAkun: document.getElementById('f_namaAkun').value,
+        klasifikasiAnggaran: document.getElementById('f_klasifikasiAnggaran').value,
+        jumlahPengajuan: document.getElementById('f_jumlahPengajuan').value,
+        token: currentToken
+      };
+
+      document.getElementById('loadingMsgSptjb').style.display = '';
+      google.script.run
+        .withSuccessHandler(function(res) {
+          document.getElementById('loadingMsgSptjb').style.display = 'none';
+          const box = document.getElementById('resultBoxSptjb');
+          box.style.display = '';
+          if (res.ok) {
+            box.textContent = 'SPTJB berhasil dibuat! No SPTJB: ' + res.noSptjb + '. Lanjutkan ke tab Surat Tugas.';
+
+            const sel = document.getElementById('f_sptjbPilihan');
+            const opt = document.createElement('option');
+            opt.value = res.idSptjb;
+            opt.dataset.noakun = noAkun;
+            opt.textContent = res.noSptjb + ' — ' + res.kegiatan;
+            sel.appendChild(opt);
+
+            tambahKartuSptjbTersimpan(res.idSptjb, res.noSptjb, res.kegiatan);
 
             ['f_kegiatan','f_tglMulai','f_tglSelesai','f_jumlahPengajuan']
               .forEach(function(id) { document.getElementById(id).value = ''; });
