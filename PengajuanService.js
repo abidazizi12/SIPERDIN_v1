@@ -20,6 +20,14 @@
  *   (Code.gs), getPengajuanListUntukRealisasi_ (RealisasiService.gs)
  *   SUDAH membaca Tujuan/Provinsi per BARIS -- jadi otomatis kompatibel
  *   dengan data kelompok tanpa perlu diubah (sudah dicek).
+ *
+ * CATATAN FITUR "BEBERAPA KAB/KOTA DALAM 1 PROVINSI":
+ * - Satu Surat Tugas (mode standar) atau satu kelompok daerah boleh
+ *   punya lebih dari 1 kab/kota tujuan (satu provinsi yang sama).
+ * - Disimpan di SATU kolom (Daerah, kolom Q, dan Tujuan, kolom O bila
+ *   Tujuan tidak diisi manual) dengan format: "A, B dan C"
+ *   (dua item: "A dan B"). Lihat gabungDaftarDaerah_() /
+ *   pecahDaftarDaerah_(). Data lama (1 daerah saja) tetap terbaca.
  * ------------------------------------------------------------
  */
 
@@ -169,6 +177,8 @@ function submitSptjb(formData) {
  *   ],
  *   token: '...'
  * }
+ * CATATAN: "daerah" (di trip maupun di orang) boleh berupa STRING ("Kab. A")
+ * atau ARRAY (["Kab. A", "Kota B"]) untuk beberapa kab/kota dalam 1 provinsi.
  * @return {Object} {ok:true, isEdit:false, status, jumlahTrip, jumlahOrang} atau {ok:false, error}
  */
 function submitSuratTugas(formData) {
@@ -264,14 +274,38 @@ function submitPengajuan(formData) {
 }
 
 /**
+ * Terima array ATAU string ("A, B dan C") -> array nama bersih tanpa
+ * duplikat. Dipakai untuk fitur beberapa kab/kota dalam 1 provinsi.
+ */
+function pecahDaftarDaerah_(v) {
+  const arr = Array.isArray(v) ? v : String(v || '').split(/\s*,\s*|\s+dan\s+/i);
+  return arr
+    .map(function (s) { return String(s).trim(); })
+    .filter(function (s, i, a) { return s && a.indexOf(s) === i; });
+}
+
+/**
+ * ["A","B","C"] -> "A, B dan C"; ["A","B"] -> "A dan B"; ["A"] -> "A".
+ * Format ini sama dengan kolom Tujuan di Daftar Nominatif.
+ */
+function gabungDaftarDaerah_(v) {
+  const a = pecahDaftarDaerah_(v);
+  if (a.length <= 1) return a[0] || '';
+  return a.slice(0, -1).join(', ') + ' dan ' + a[a.length - 1];
+}
+
+/**
  * Tulis baris DB_PENGAJUAN untuk SATU Surat Tugas (1 idTrip/idPengajuan)
  * beserta semua orangnya.
  *
- * PERUBAHAN (fitur kelompok daerah): setiap orang BOLEH punya
- * tujuan/provinsi/daerah SENDIRI (o.tujuan/o.provinsi/o.daerah) yang
- * meng-override nilai trip-level (t.tujuan/t.provinsi/t.daerah).
- * Kalau tidak diisi (mode "Satu Daerah Bersama"), fallback ke nilai
- * trip seperti sebelumnya -- 100% backward compatible.
+ * Fitur kelompok daerah: setiap orang BOLEH punya tujuan/provinsi/daerah
+ * SENDIRI (o.tujuan/o.provinsi/o.daerah) yang meng-override nilai
+ * trip-level. Kalau tidak diisi (mode "Satu Daerah Bersama"), fallback
+ * ke nilai trip -- 100% backward compatible.
+ *
+ * Fitur multi kab/kota: daerah (di orang maupun trip) boleh array;
+ * disimpan sebagai satu string "A, B dan C". Kolom Tujuan: isian manual
+ * menang; kalau kosong, otomatis sama dengan daftar daerah.
  */
 function tulisSatuTrip_(shPengajuan, item, idSptjb, noAkunTrip, emailPengirim, idTrip, idPengajuan) {
   const t = item.trip;
@@ -279,9 +313,11 @@ function tulisSatuTrip_(shPengajuan, item, idSptjb, noAkunTrip, emailPengirim, i
 
   const rows = item.orangList.map(function (o) {
     const idBaris = 'BR-' + nextSequence_('BARIS');
-    const tujuanOrang = o.tujuan || t.tujuan || '';
+    const daerahPilihan = pecahDaftarDaerah_(o.daerah);
+    const adaDaerahOrang = daerahPilihan.length > 0;
+    const daerahOrang = gabungDaftarDaerah_(adaDaerahOrang ? daerahPilihan : t.daerah);
     const provinsiOrang = o.provinsi || t.provinsi || '';
-    const daerahOrang = o.daerah || t.daerah || '';
+    const tujuanOrang = o.tujuan || (adaDaerahOrang ? daerahOrang : (t.tujuan || daerahOrang));
     return [
       idBaris, idTrip, idPengajuan, idSptjb,
       noAkunTrip,
@@ -326,14 +362,18 @@ function hapusBarisPengajuan_(idPengajuan) {
  * Dipanggil dari client untuk memuat ulang satu Pengajuan (Surat
  * Tugas) ke form, supaya bisa diedit.
  *
- * PERUBAHAN (fitur kelompok daerah): fungsi ini sekarang MENDETEKSI
- * OTOMATIS apakah Surat Tugas ini punya lebih dari 1 kombinasi
- * Provinsi+Daerah berbeda di antara baris-barisnya:
- * - Kalau HANYA 1 kombinasi -> mode: 'standar' (perilaku lama,
- *   orangList diisi seperti biasa, kelompokList kosong).
+ * Fungsi ini MENDETEKSI OTOMATIS apakah Surat Tugas ini punya lebih
+ * dari 1 kombinasi Provinsi+Daerah berbeda di antara baris-barisnya:
+ * - Kalau HANYA 1 kombinasi -> mode: 'standar' (orangList diisi,
+ *   kelompokList kosong).
  * - Kalau LEBIH dari 1 kombinasi -> mode: 'kelompok', orangList
  *   dikosongkan dan kelompokList diisi per kombinasi
- *   (provinsi, daerah, tujuan, namaKelompok, orangList).
+ *   (provinsi, daerah, daerahList, tujuan, namaKelompok, orangList).
+ *
+ * daerahList = daftar kab/kota hasil pecahan string Daerah ("A, B dan C").
+ * trip.tujuan dikembalikan KOSONG kalau isinya sama dengan Daerah
+ * (artinya otomatis), supaya perubahan pilihan daerah saat edit ikut
+ * memperbarui Tujuan dan tidak "terkunci" sebagai isian manual.
  */
 function getPengajuanUntukEdit(idPengajuan) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('DB_PENGAJUAN');
@@ -355,7 +395,7 @@ function getPengajuanUntukEdit(idPengajuan) {
     const key = provinsi + '||' + daerah;
     if (!comboMap[key]) {
       comboMap[key] = {
-        provinsi: provinsi, daerah: daerah, tujuan: row[14] || '',
+        provinsi: provinsi, daerah: daerah, daerahList: pecahDaftarDaerah_(daerah), tujuan: row[14] || '',
         namaKelompok: row[12] || '', orangList: []
       };
       comboOrder.push(key);
@@ -376,7 +416,8 @@ function getPengajuanUntukEdit(idPengajuan) {
     idSptjb: first[3],
     mode: isKelompok ? 'kelompok' : 'standar',
     trip: {
-      tujuan: first[14], provinsi: first[15], daerah: first[16],
+      tujuan: first[14] === first[16] ? '' : first[14],
+      provinsi: first[15], daerah: first[16], daerahList: pecahDaftarDaerah_(first[16]),
       tglBerangkat: formatTanggalInput_(first[17]), tglKembali: formatTanggalInput_(first[18]),
       hotelVendor: first[20], noSpm: first[5], noSt: first[29], noSk: first[11],
       tahap: first[6], kegiatanTrip: first[7]
@@ -391,8 +432,8 @@ function getPengajuanUntukEdit(idPengajuan) {
  * untuk ditampilkan di form supaya bisa dipilih untuk di-Edit.
  * Dipanggil dari server (Code.gs doGet), bukan dari client.
  *
- * PERUBAHAN: kalau satu Surat Tugas ternyata punya lebih dari 1
- * tujuan unik (mode kelompok), label tujuan yang ditampilkan jadi
+ * Kalau satu Surat Tugas ternyata punya lebih dari 1 tujuan unik
+ * (mode kelompok), label tujuan yang ditampilkan jadi
  * "<tujuan pertama> + N daerah lain" supaya tidak menyesatkan.
  */
 function getDaftarPengajuanUntukEdit_() {
@@ -575,6 +616,25 @@ function seedNoSptjbCounters_(ss, props) {
 /**
  * ============================================================================
  * MODUL SARAN NOMINATIF OTOMATIS — form Pengajuan SIPERDIN
+ * ----------------------------------------------------------------------------
+ * Menarik batas MAKSIMAL tarif dari sheet REF_TARIF (sesuai PMK 32/2025)
+ * untuk tiap komponen biaya. Hasilnya hanya SARAN -- field di form tetap
+ * bisa diubah manual.
+ *
+ * PERBAIKAN TERBARU:
+ * - Tarif hotel: kolom dipilih dari nama header berdasarkan Golongan_Hotel
+ *   (1-4) di REF_PEGAWAI (dulu mencari angka di nama header, tidak pernah cocok).
+ * - Pencocokan provinsi memakai kunciProvinsi_() supaya tahan terhadap
+ *   ejaan berbeda antar blok ("R I A U", "A C E H", Sumatra/Sumatera).
+ * - Beberapa kab/kota dalam 1 provinsi: tiket & transport pakai tarif
+ *   TERTINGGI dari semua kab/kota terpilih (SBM = batas atas).
+ * - Hasil sekarang menyertakan "catatan" bila ada komponen yang tidak
+ *   ditemukan tarifnya, supaya tidak gagal diam-diam.
+ * - Transport Kedudukan & Transport Tujuan (taksi/transport bandara) dikali 2
+ *   (pergi-pulang), lihat KALI_TRANSPORT_BANDARA.
+ * - Tiket pesawat: pencocokan kota tidak lagi bergantung awalan Kab./Kota, dan
+ *   bila tidak ada rute langsung ke kab/kota dipakai rute ke kota bandara provinsi
+ *   (KOTA_BANDARA_PROVINSI) dengan catatan yang jelas.
  * ============================================================================
  */
 
@@ -590,16 +650,69 @@ var TITLE_KEYWORDS = {
   TIKET_PESAWAT: 'tiket pesawat'
 };
 
+// Golongan_Hotel di REF_PEGAWAI -> nama kolom di blok HOTEL PEJABAT
+// (sudah huruf kecil, sesuai hasil closeBlock_)
+var KOLOM_HOTEL_PER_GOLONGAN = {
+  '1': 'tarif_pejabat_negara_wamen_eselon_i',
+  '2': 'tarif_eselon_ii',
+  '3': 'tarif_eselon_iii_gol_iv',
+  '4': 'tarif_eselon_iv_gol_iii_ii_i'
+};
+
+// Transport Kedudukan & Transport Tujuan dihitung PERGI-PULANG: tarif SBM taksi/transport
+// bandara di REF_TARIF adalah per sekali jalan, jadi dikali 2.
+var KALI_TRANSPORT_BANDARA = 2;
+
+// Kota bandara utama per provinsi (kunci = kunciProvinsi_). Dipakai HANYA sebagai cadangan
+// saat tidak ada rute Jakarta-<kab/kota tujuan> di blok TIKET PESAWAT (mis. kabupaten tanpa
+// bandara). Provinsi tanpa rute pesawat dari Jakarta (Jawa Barat, Banten, DKI) sengaja tidak ada.
+var KOTA_BANDARA_PROVINSI = {
+  'aceh': 'Banda Aceh', 'sumatrautara': 'Medan', 'riau': 'Pekanbaru', 'kepulauanriau': 'Batam',
+  'jambi': 'Jambi', 'sumatrabarat': 'Padang', 'sumatraselatan': 'Palembang', 'lampung': 'Bandar Lampung',
+  'bengkulu': 'Bengkulu', 'bangkabelitung': 'Pangkal Pinang',
+  'jawatengah': 'Semarang', 'diyogyakarta': 'Yogyakarta', 'jawatimur': 'Surabaya',
+  'bali': 'Denpasar', 'nusatenggarabarat': 'Mataram', 'nusatenggaratimur': 'Kupang',
+  'kalimantanbarat': 'Pontianak', 'kalimantantengah': 'Palangkaraya', 'kalimantanselatan': 'Banjarmasin',
+  'kalimantantimur': 'Balikpapan', 'kalimantanutara': 'Tanjung Selor',
+  'sulawesiutara': 'Manado', 'gorontalo': 'Gorontalo', 'sulawesibarat': 'Mamuju',
+  'sulawesiselatan': 'Makassar', 'sulawesitengah': 'Palu', 'sulawesitenggara': 'Kendari',
+  'maluku': 'Ambon', 'malukuutara': 'Ternate', 'papua': 'Jayapura', 'papuabarat': 'Manokwari',
+  'papuatengah': 'Timika'
+};
+
+// Beda penulisan nama kota antara data wilayah dan blok TIKET PESAWAT (kunci & nilai = kunciKota_)
+var KOTA_ALIAS = { 'surakarta': 'solo' };
+
+/**
+ * Fungsi utama — dipanggil dari form lewat google.script.run.
+ * @param {Object} p {namaPegawai, provinsiTujuan, kabKotaList (array) ATAU kabKotaTujuan (string), lamaHari}
+ * @return {Object} breakdown nominatif per komponen + total + catatan
+ */
 function hitungNominatifSaran(p) {
   var pegawai = getPegawaiByNama_(p.namaPegawai);
   var blok = getBlokRefTarif_();
 
-  var transportPP = cariTiketPesawat_(blok.TIKET_PESAWAT, 'Jakarta', p.kabKotaTujuan, pegawai.golongan);
-  var transportKedudukan = cariTaksi_(blok.TAKSI, 'D.K.I. Jakarta');
-  var transportTujuan = cariTaksi_(blok.TAKSI, p.provinsiTujuan);
-  if (!transportTujuan) {
-    transportTujuan = cariTransportPeserta_(blok.TRANSPORT_PESERTA, p.kabKotaTujuan);
-  }
+  var daftarKabKota = pecahDaftarDaerah_(p.kabKotaList && p.kabKotaList.length ? p.kabKotaList : p.kabKotaTujuan);
+
+  // Tiket: untuk tiap kab/kota cari rute Jakarta-tujuan; kalau tidak ada, pakai kota bandara
+  // provinsi itu. Bila banyak kab/kota, ambil tarif TERTINGGI (SBM = batas atas).
+  var catatanTiket = [];
+  var transportPP = tarifTertinggi_(daftarKabKota, function (kk) {
+    var hasil = cariTiketDenganFallback_(blok.TIKET_PESAWAT, kk, p.provinsiTujuan, pegawai.golongan);
+    if (hasil.via) catatanTiket.push('Tiket ke ' + kk + ' memakai rute Jakarta-' + hasil.via + ' (kota bandara provinsi; tidak ada rute langsung).');
+    return hasil.tarif;
+  });
+
+  // TAKSI di REF_TARIF diindeks per PROVINSI (bukan per kota) -- jadi
+  // kedudukan (asal) pakai provinsi DKI Jakarta, tujuan pakai provinsi
+  // tujuan trip, BUKAN nama kab/kota-nya. Keduanya dikali 2 (pergi-pulang).
+  var transportKedudukan = cariTaksi_(blok.TAKSI, 'D.K.I. Jakarta') * KALI_TRANSPORT_BANDARA;
+  var taksiTujuan = cariTaksi_(blok.TAKSI, p.provinsiTujuan);
+  var transportTujuan = taksiTujuan
+    ? taksiTujuan * KALI_TRANSPORT_BANDARA
+    : tarifTertinggi_(daftarKabKota, function (kk) {
+        return cariTransportPeserta_(blok.TRANSPORT_PESERTA, kk); // tarif per kab/kota, tidak dikali 2
+      });
   var uhHarian = cariUhPegawai_(blok.UH_PEGAWAI, p.provinsiTujuan, 'luar_kota');
   var uangHarian = uhHarian * p.lamaHari;
   var tarifHotel = cariHotelPejabat_(blok.HOTEL_PEJABAT, p.provinsiTujuan, pegawai.golonganHotel);
@@ -609,6 +722,13 @@ function hitungNominatifSaran(p) {
   var total = transportPP + transportKedudukan + transportTujuan
             + uangHarian + penginapan + uangRepresentatif;
 
+  var catatan = [];
+  if (!uhHarian) catatan.push('Uang harian provinsi ini tidak ditemukan di REF_TARIF.');
+  if (!tarifHotel && p.lamaHari > 1) catatan.push('Tarif hotel provinsi ini tidak ditemukan di REF_TARIF.');
+  if (!transportPP) catatan.push('Tiket pesawat Jakarta-tujuan tidak ada di REF_TARIF (Rp0; isi manual bila naik pesawat).');
+  else catatan = catatan.concat(catatanTiket);
+  if (!transportTujuan) catatan.push('Tarif transport tujuan tidak ditemukan di REF_TARIF.');
+
   return {
     transportPP: transportPP,
     transportKedudukan: transportKedudukan,
@@ -617,10 +737,43 @@ function hitungNominatifSaran(p) {
     penginapan: penginapan,
     uangRepresentatif: uangRepresentatif,
     total: total,
-    catatan: uangRepresentatif === 0
-      ? 'Uang Representatif belum ada referensi tarif — isi manual jika berlaku.'
-      : ''
+    catatan: catatan.join(' ')
   };
+}
+
+// Nilai tertinggi dari fn(item) untuk semua item di daftar (0 kalau kosong)
+function tarifTertinggi_(daftar, fn) {
+  return daftar.reduce(function (maks, item) {
+    return Math.max(maks, Number(fn(item)) || 0);
+  }, 0);
+}
+
+// Kunci pembanding provinsi: tahan terhadap "R I A U", "A C E H",
+// "D.K.I. Jakarta", dan beda ejaan Sumatra/Sumatera antar blok REF_TARIF.
+function kunciProvinsi_(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z]/g, '').replace('sumatera', 'sumatra');
+}
+
+// Kunci pembanding nama kota: tanpa awalan Kab./Kota/Kabupaten, tanpa spasi & tanda baca
+// ("Kota Medan" -> "medan", "Kota Surakarta" -> "solo")
+function kunciKota_(s) {
+  var k = String(s || '').toLowerCase()
+    .replace(/^\s*(kabupaten|kab\.?|kota)\s+/, '')
+    .replace(/[^a-z]/g, '');
+  return KOTA_ALIAS[k] || k;
+}
+
+// Tiket pesawat dengan cadangan: rute langsung ke kab/kota; kalau tidak ada, rute ke kota
+// bandara provinsi. via = nama kota bandara bila cadangan dipakai, '' bila rute langsung.
+function cariTiketDenganFallback_(blokData, kabKota, provinsi, golongan) {
+  var langsung = cariTiketPesawat_(blokData, 'Jakarta', kabKota, golongan);
+  if (langsung) return { tarif: langsung, via: '' };
+  var kotaBandara = KOTA_BANDARA_PROVINSI[kunciProvinsi_(provinsi)];
+  if (kotaBandara) {
+    var viaBandara = cariTiketPesawat_(blokData, 'Jakarta', kotaBandara, golongan);
+    if (viaBandara) return { tarif: viaBandara, via: kotaBandara };
+  }
+  return { tarif: 0, via: '' };
 }
 
 function getBlokRefTarif_(skipCache) {
@@ -641,6 +794,8 @@ function getBlokRefTarif_(skipCache) {
   var currentStart = null;
 
   for (var c = 0; c < lastCol; c++) {
+    // pakai normalisasi_ (bukan toLowerCase/trim biasa) supaya spasi ganda
+    // atau spasi tak biasa di judul sheet tidak bikin deteksi blok gagal
     var titleCell = normalisasi_(titleRow[c]);
     if (titleCell) {
       if (currentKey) {
@@ -654,7 +809,13 @@ function getBlokRefTarif_(skipCache) {
     blocks[currentKey] = closeBlock_(sheet, currentStart, lastCol, headerRow);
   }
 
-  cache.put('BLOK_REF_TARIF', JSON.stringify(blocks), 300);
+  // CacheService membatasi 100 KB per key -- kalau kelewat, jangan sampai
+  // seluruh saran SBM ikut gagal; cukup lewati cache.
+  try {
+    cache.put('BLOK_REF_TARIF', JSON.stringify(blocks), 300); // cache 5 menit
+  } catch (e) {
+    console.warn('Cache BLOK_REF_TARIF gagal disimpan: ' + e.message);
+  }
   return blocks;
 }
 
@@ -664,7 +825,11 @@ function closeBlock_(sheet, startCol, endCol, headerRow) {
     return String(h || '').toLowerCase().trim();
   });
   var lastRow = sheet.getLastRow();
-  var data = sheet.getRange(3, startCol + 1, lastRow - 2, width).getValues();
+  // baris yang seluruh selnya kosong dibuang: memperkecil ukuran cache
+  var data = sheet.getRange(3, startCol + 1, lastRow - 2, width).getValues()
+    .filter(function (row) {
+      return row.some(function (c) { return c !== ''; });
+    });
   return { startCol: startCol, headers: headers, data: data };
 }
 
@@ -688,6 +853,8 @@ function normalisasi_(s) {
   return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+// --- Pencari per blok ---------------------------------------------------
+
 function cariUhPegawai_(blokData, provinsi, jenis) {
   if (!blokData) return 0;
   var colProv = findColIndex_(blokData.headers, ['provinsi']);
@@ -696,9 +863,9 @@ function cariUhPegawai_(blokData, provinsi, jenis) {
   var colTarget = jenis === 'dalam_kota' ? colDalam : colLuar;
   if (colProv === -1 || colTarget === -1) return 0;
 
-  var target = normalisasi_(provinsi);
+  var target = kunciProvinsi_(provinsi);
   for (var i = 0; i < blokData.data.length; i++) {
-    if (normalisasi_(blokData.data[i][colProv]) === target) {
+    if (kunciProvinsi_(blokData.data[i][colProv]) === target) {
       return Number(blokData.data[i][colTarget]) || 0;
     }
   }
@@ -708,12 +875,14 @@ function cariUhPegawai_(blokData, provinsi, jenis) {
 function cariHotelPejabat_(blokData, provinsi, golonganHotel) {
   if (!blokData) return 0;
   var colProv = findColIndex_(blokData.headers, ['provinsi']);
-  var colGol = findColIndex_(blokData.headers, [normalisasi_(golonganHotel)]);
+  // golongan hotel kosong/tidak dikenal -> pakai golongan 4 (tarif terendah)
+  var namaKolom = KOLOM_HOTEL_PER_GOLONGAN[String(golonganHotel).trim()] || KOLOM_HOTEL_PER_GOLONGAN['4'];
+  var colGol = blokData.headers.indexOf(namaKolom);
   if (colProv === -1 || colGol === -1) return 0;
 
-  var target = normalisasi_(provinsi);
+  var target = kunciProvinsi_(provinsi);
   for (var i = 0; i < blokData.data.length; i++) {
-    if (normalisasi_(blokData.data[i][colProv]) === target) {
+    if (kunciProvinsi_(blokData.data[i][colProv]) === target) {
       return Number(blokData.data[i][colGol]) || 0;
     }
   }
@@ -726,9 +895,9 @@ function cariTaksi_(blokData, provinsi) {
   var colTarif = findColIndex_(blokData.headers, ['tarif', 'taksi', 'nilai']);
   if (colProv === -1 || colTarif === -1) return 0;
 
-  var target = normalisasi_(provinsi);
+  var target = kunciProvinsi_(provinsi);
   for (var i = 0; i < blokData.data.length; i++) {
-    if (normalisasi_(blokData.data[i][colProv]) === target) {
+    if (kunciProvinsi_(blokData.data[i][colProv]) === target) {
       return Number(blokData.data[i][colTarif]) || 0;
     }
   }
@@ -759,25 +928,32 @@ function cariTiketPesawat_(blokData, kotaAsal, kotaTujuan, golongan) {
   var colTarif = findColIndex_(blokData.headers, [kelas]);
   if (colAsal === -1 || colTujuan === -1 || colTarif === -1) return 0;
 
-  var tAsal = normalisasi_(kotaAsal);
-  var tTujuan = normalisasi_(kotaTujuan);
+  var kAsal = kunciKota_(kotaAsal);
+  var kTujuan = kunciKota_(kotaTujuan);
+  if (!kAsal || !kTujuan) return 0;
+
   for (var i = 0; i < blokData.data.length; i++) {
-    var asal = normalisasi_(blokData.data[i][colAsal]);
-    var tujuan = normalisasi_(blokData.data[i][colTujuan]);
-    if (asal.indexOf(tAsal) !== -1 &&
-        (tujuan.indexOf(tTujuan) !== -1 || tTujuan.indexOf(tujuan) !== -1)) {
+    if (kunciKota_(blokData.data[i][colAsal]) !== kAsal) continue;
+    if (kunciKota_(blokData.data[i][colTujuan]) === kTujuan) {
       return Number(blokData.data[i][colTarif]) || 0;
     }
   }
   return 0;
 }
 
+/**
+ * Aturan kelas tiket bisnis biasanya untuk pejabat eselon I/II (golongan IV/d ke atas).
+ * TODO: sesuaikan ambang golongan ini dengan aturan resmi di PMK 32/2025 jika beda.
+ */
 function golonganTermasukBisnis_(golongan) {
   if (!golongan) return false;
   var g = String(golongan).toUpperCase().replace(/\s+/g, '');
   return g.indexOf('IV/D') !== -1 || g.indexOf('IV/E') !== -1 || g.indexOf('IVD') !== -1 || g.indexOf('IVE') !== -1;
 }
 
+/**
+ * Ambil data pegawai (golongan, golongan_hotel) dari REF_PEGAWAI berdasar nama.
+ */
 function getPegawaiByNama_(nama) {
   var sheet = SpreadsheetApp.getActive().getSheetByName('REF_PEGAWAI');
   var data = sheet.getDataRange().getValues();
@@ -799,6 +975,12 @@ function getPegawaiByNama_(nama) {
   return { nama: nama, golongan: '', golonganHotel: '' };
 }
 
+/**
+ * DIAGNOSTIK — jalankan fungsi ini manual dari editor Apps Script
+ * (pilih debugRefTarif di dropdown atas, klik Run), lalu buka
+ * Executions / View > Logs untuk lihat hasilnya.
+ * Sekaligus menyegarkan cache BLOK_REF_TARIF (skipCache = true).
+ */
 function debugRefTarif() {
   var sheet = SpreadsheetApp.getActive().getSheetByName(REF_TARIF_SHEET_NAME);
   if (!sheet) {
@@ -811,7 +993,7 @@ function debugRefTarif() {
   Logger.log('=== Baris judul (row 1), mentah ===');
   Logger.log(JSON.stringify(titleRow));
 
-  var blok = getBlokRefTarif_(true);
+  var blok = getBlokRefTarif_(true); // skip cache, baca ulang dari sheet
   var keys = Object.keys(blok);
   Logger.log('=== Blok yang TERDETEKSI: ' + (keys.length ? keys.join(', ') : '(tidak ada satupun)') + ' ===');
 
@@ -829,9 +1011,28 @@ function debugRefTarif() {
   Logger.log(JSON.stringify(getDaerahByProvinsi('Jawa Barat')));
 }
 
+/**
+ * DIAGNOSTIK Saran SBM lengkap — jalankan manual dari editor, ubah
+ * parameter di bagian atas fungsi sesuai kasus yang bermasalah, lalu cek Logs.
+ */
+function debugSaranSbm() {
+  var nama = 'Nidhomul Haq S.Psi.';       // GANTI: nama persis di REF_PEGAWAI
+  var provinsi = 'Sumatra Utara';          // GANTI: provinsi seperti di dropdown
+  var kabKota = ['Kota Medan', 'Kab. Deli Serdang']; // GANTI: satu atau beberapa kab/kota
+  var lamaHari = 3;
+
+  var hasil = hitungNominatifSaran({ namaPegawai: nama, provinsiTujuan: provinsi, kabKotaList: kabKota, lamaHari: lamaHari });
+  Logger.log(JSON.stringify(hasil, null, 2));
+  Logger.log('Gabungan daerah yang akan tersimpan: ' + gabungDaftarDaerah_(kabKota));
+}
+
+/**
+ * DIAGNOSTIK Transport Tiket -- jalankan manual dari editor, isi
+ * parameter di bagian atas sesuai kasus yang bermasalah, lalu cek Logs.
+ */
 function debugTiketPesawat() {
-  var kotaTujuan = 'Kota Medan';
-  var golongan = 'III/a';
+  var kotaTujuan = 'Kota Medan'; // GANTI sesuai kab/kota yang dicoba di form
+  var golongan = 'III/a'; // GANTI sesuai golongan pegawai yang dicoba
 
   var blok = getBlokRefTarif_(true);
   var b = blok.TIKET_PESAWAT;
